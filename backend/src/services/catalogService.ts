@@ -10,7 +10,7 @@ export interface CatalogItem {
   tags: string[];
 }
 
-export const CATALOG_DATABASE: CatalogItem[] = [
+const INITIAL_CATALOG_DATABASE: CatalogItem[] = [
   // Snacks Category (Vendor: Snack House Pvt Ltd - Allowlisted)
   {
     id: 'item_snack_01',
@@ -46,7 +46,7 @@ export const CATALOG_DATABASE: CatalogItem[] = [
     tags: ['energy bar', 'bars', 'healthy', 'snacks'],
   },
 
-  // Office Supplies Category (Vendor: Office Supplies Co & Fresh Stationery - Allowlisted)
+  // Office Supplies Category (Vendor: Office Supplies Co - Allowlisted)
   {
     id: 'item_office_01',
     vendorId: 'office_supplies_co',
@@ -130,6 +130,78 @@ export const CATALOG_DATABASE: CatalogItem[] = [
   },
 ];
 
+export let CATALOG_DATABASE: CatalogItem[] = [...INITIAL_CATALOG_DATABASE];
+
+/**
+ * Returns all current catalog items
+ */
+export function getCatalogItems(): CatalogItem[] {
+  return [...CATALOG_DATABASE];
+}
+
+/**
+ * Adds a new item/supplier to the dynamic catalog
+ */
+export function addCatalogItem(item: Omit<CatalogItem, 'id'> & { id?: string }): CatalogItem {
+  const newItem: CatalogItem = {
+    id: item.id || `item_custom_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    vendorId: item.vendorId.trim().toLowerCase().replace(/\s+/g, '_'),
+    vendorName: item.vendorName.trim(),
+    category: item.category,
+    name: item.name.trim(),
+    unitPrice: Number(item.unitPrice),
+    currency: item.currency || 'INR',
+    inStock: item.inStock ?? true,
+    tags: Array.isArray(item.tags)
+      ? item.tags.map((t) => t.trim().toLowerCase())
+      : [item.name.toLowerCase(), item.vendorName.toLowerCase()],
+  };
+
+  CATALOG_DATABASE.unshift(newItem);
+  return newItem;
+}
+
+/**
+ * Deletes a catalog item by ID
+ */
+export function deleteCatalogItem(itemId: string): boolean {
+  const index = CATALOG_DATABASE.findIndex((item) => item.id === itemId);
+  if (index !== -1) {
+    CATALOG_DATABASE.splice(index, 1);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Returns unique suppliers in the catalog
+ */
+export function getAvailableSuppliers(): Array<{ vendorId: string; vendorName: string; category: string; itemCount: number }> {
+  const map = new Map<string, { vendorId: string; vendorName: string; category: string; itemCount: number }>();
+
+  for (const item of CATALOG_DATABASE) {
+    if (!map.has(item.vendorId)) {
+      map.set(item.vendorId, {
+        vendorId: item.vendorId,
+        vendorName: item.vendorName,
+        category: item.category,
+        itemCount: 0,
+      });
+    }
+    const current = map.get(item.vendorId)!;
+    current.itemCount += 1;
+  }
+
+  return Array.from(map.values());
+}
+
+/**
+ * Resets catalog back to original baseline
+ */
+export function resetCatalogToDefault(): void {
+  CATALOG_DATABASE = [...INITIAL_CATALOG_DATABASE];
+}
+
 /**
  * Searches vendor catalog by keyword and category
  */
@@ -143,7 +215,7 @@ export function searchCatalog(query: string, categoryFilter?: string): CatalogIt
 
     const matchesName = item.name.toLowerCase().includes(normalizedQuery);
     const matchesTag = item.tags.some((tag) => normalizedQuery.includes(tag) || tag.includes(normalizedQuery));
-    const matchesVendor = item.vendorName.toLowerCase().includes(normalizedQuery);
+    const matchesVendor = item.vendorName.toLowerCase().includes(normalizedQuery) || item.vendorId.includes(normalizedQuery);
 
     return matchesName || matchesTag || matchesVendor;
   });

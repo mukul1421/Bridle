@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
 // Rule Types
-export type RuleType = 'SPEND_CAP' | 'VENDOR_ALLOWLIST' | 'CATEGORY_LIMIT' | 'ROLLING_TOTAL';
+export type RuleType = 'SPEND_CAP' | 'VENDOR_ALLOWLIST' | 'CATEGORY_LIMIT' | 'ROLLING_TOTAL' | 'CUSTOM_NL_RULE';
 
 // Base Rule Schema
 export const BaseRuleSchema = z.object({
   id: z.string(),
-  type: z.enum(['SPEND_CAP', 'VENDOR_ALLOWLIST', 'CATEGORY_LIMIT', 'ROLLING_TOTAL']),
+  type: z.enum(['SPEND_CAP', 'VENDOR_ALLOWLIST', 'CATEGORY_LIMIT', 'ROLLING_TOTAL', 'CUSTOM_NL_RULE']),
   enabled: z.boolean().default(true),
   name: z.string(),
   description: z.string().optional(),
@@ -44,12 +44,21 @@ export const RollingTotalRuleSchema = BaseRuleSchema.extend({
 });
 export type RollingTotalRule = z.infer<typeof RollingTotalRuleSchema>;
 
+// 5. Custom Natural Language Rule
+export const CustomNaturalLanguageRuleSchema = BaseRuleSchema.extend({
+  type: z.literal('CUSTOM_NL_RULE'),
+  promptText: z.string(),
+  defaultAction: z.enum(['BLOCK', 'ESCALATE']).default('BLOCK'),
+});
+export type CustomNaturalLanguageRule = z.infer<typeof CustomNaturalLanguageRuleSchema>;
+
 // Union of all Rule Schemas
 export const PolicyRuleSchema = z.discriminatedUnion('type', [
   SpendCapRuleSchema,
   VendorAllowlistRuleSchema,
   CategoryLimitRuleSchema,
   RollingTotalRuleSchema,
+  CustomNaturalLanguageRuleSchema,
 ]);
 export type PolicyRule = z.infer<typeof PolicyRuleSchema>;
 
