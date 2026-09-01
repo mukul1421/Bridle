@@ -1,51 +1,66 @@
-# Architecture Specification — Agent Trust Layer
+# Architecture Specification — Bridle
 
-## 1. Executive Design & Core Concepts
+## 1. Dual-Pillar Executive System Design
 
-The **Agent Trust Layer** is designed as a zero-trust policy engine wrapper around autonomous LLM agents executing payments.
+**Bridle** is an end-to-end autonomous purchasing platform governed by a zero-trust policy engine. It combines two primary modules:
+1. **Autonomous LLM Purchasing Agent**: Converts human merchant intent into structured, itemized purchase orders by reasoning over vendor inventories.
+2. **Policy & Governance Engine**: Evaluates every agent-generated purchase request against configurable financial rules before executing payments via Razorpay.
 
-### 1.1 The Policy Evaluation Pipeline
+---
+
+## 2. End-to-End System Pipeline
+
 ```
-[ Incoming Purchase Request ]
-            │
-            ▼
- ┌──────────────────────┐
- │ 1. Schema Validation │ ── (Invalid format) ──> [ REJECT (400) ]
- └──────────┬───────────┘
-            │
-            ▼
- ┌──────────────────────┐
- │ 2. Vendor Allowlist  │ ── (Unlisted vendor) ──> [ BLOCK ]
- └──────────┬───────────┘
-            │
-            ▼
- ┌──────────────────────┐
- │ 3. Per-Transaction   │ ── (> Hard Cap) ───────> [ BLOCK ]
- │    Spend Cap         │ ── (> Soft Cap) ───────> [ ESCALATE ]
- └──────────┬───────────┘
-            │
-            ▼
- ┌──────────────────────┐
- │ 4. Category Limits   │ ── (> Allocation) ─────> [ BLOCK ]
- └──────────┬───────────┘
-            │
-            ▼
- ┌──────────────────────┐
- │ 5. Rolling Daily/    │ ── (Exceeds 24h cap) ──> [ ESCALATE / BLOCK ]
- │    Weekly Totals     │
- └──────────┬───────────┘
-            │
-            ▼
-       [  ALLOW  ] ───> Dispatches to Razorpay API
+[ Merchant Input ] ──> "Restock snacks under ₹10,000"
+                              │
+                              ▼
+┌────────────────────────────────────────────────────────────┐
+│ PILLAR 1: AUTONOMOUS LLM PURCHASING AGENT                  │
+├────────────────────────────────────────────────────────────┤
+│ • Prompt Context: Merchant Goal + Inventory Catalog        │
+│ • Catalog Search & Reasoning: Item selection & quantity    │
+│ • Structured Output Generator (Zod Validation)            │
+└─────────────────────────────┬──────────────────────────────┘
+                              │
+                              ▼ Structured Purchase Request
+┌────────────────────────────────────────────────────────────┐
+│ PILLAR 2: POLICY GOVERNANCE ENGINE                         │
+├────────────────────────────────────────────────────────────┤
+│ 1. Schema Validation (Verify Request Fields)               │
+│ 2. Vendor Allowlist Check (Verified Suppliers Only)        │
+│ 3. Per-Transaction Spend Cap Check (Hard/Soft Limits)      │
+│ 4. Category Budget Allocation Check                        │
+│ 5. 24-Hour Rolling Spend Ceiling Check                     │
+└─────────────────────────────┬──────────────────────────────┘
+                              │
+                              ▼ Evaluation Outcome
+      ┌───────────────────────┼───────────────────────┐
+      │                       │                       │
+      ▼                       ▼                       ▼
+ [ ALLOW ]               [ BLOCK ]               [ ESCALATE ]
+  Dispatches to           Logs Audit              Routes to Human
+  Razorpay API            Reason                  Approval Queue
 ```
 
 ---
 
-## 2. Policy Engine Schema Design
+## 3. Pillar 1: Autonomous LLM Purchasing Agent Spec
 
-The policy engine operates on standard JSON rule objects stored per merchant account.
+### 3.1 Input Context
+- **Merchant Goal**: Natural language target string (e.g., *"Order 5 boxes of printer paper and office stationery under ₹15,000"*).
+- **Vendor Inventory Dataset**: Mock or live vendor database containing vendor IDs, item stock, pricing, and category tags.
 
-### 2.1 Rule Data Schema Definitions
+### 3.2 Agent Processing Logic
+1. **Goal Extraction**: Identifies budget caps, requested items, and urgency.
+2. **Vendor Selection**: Queries allowlisted/available vendors offering requested items.
+3. **Quantity & Price Computation**: Calculates line item totals and checks overall sum against user goal.
+4. **Structured JSON Emission**: Produces strict JSON matching `TransactionRequestSchema`.
+
+---
+
+## 4. Pillar 2: Policy Engine Schema & Rule Specifications
+
+### 4.1 Rule Schema Definitions
 
 #### A. Per-Transaction Spend Cap Rule (`SPEND_CAP`)
 ```json
@@ -53,6 +68,7 @@ The policy engine operates on standard JSON rule objects stored per merchant acc
   "id": "rule_spend_cap_01",
   "type": "SPEND_CAP",
   "enabled": true,
+  "name": "Per-Transaction Limit",
   "maxAmountPerTransaction": 15000,
   "softCapEscalateThreshold": 10000,
   "currency": "INR"
@@ -65,6 +81,7 @@ The policy engine operates on standard JSON rule objects stored per merchant acc
   "id": "rule_vendor_allowlist_01",
   "type": "VENDOR_ALLOWLIST",
   "enabled": true,
+  "name": "Supplier Allowlist",
   "allowedVendors": [
     "snack_house_pvt_ltd",
     "cloud_services_inc",
@@ -81,6 +98,7 @@ The policy engine operates on standard JSON rule objects stored per merchant acc
   "id": "rule_category_limit_01",
   "type": "CATEGORY_LIMIT",
   "enabled": true,
+  "name": "Category Allocations",
   "categoryCaps": {
     "snacks_and_beverages": 10000,
     "office_supplies": 20000,
@@ -95,6 +113,7 @@ The policy engine operates on standard JSON rule objects stored per merchant acc
   "id": "rule_rolling_total_01",
   "type": "ROLLING_TOTAL",
   "enabled": true,
+  "name": "24-Hour Rolling Budget",
   "windowHours": 24,
   "maxRollingAmount": 30000
 }
@@ -102,64 +121,21 @@ The policy engine operates on standard JSON rule objects stored per merchant acc
 
 ---
 
-## 3. Transaction & Evaluation Data Schema
-
-### 3.1 Incoming Transaction Request
-```json
-{
-  "requestId": "req_9812739182",
-  "merchantId": "merch_demo_1",
-  "goalText": "Restock office snacks for team under ₹10,000",
-  "vendorId": "snack_house_pvt_ltd",
-  "vendorName": "Snack House Pvt Ltd",
-  "category": "snacks_and_beverages",
-  "items": [
-    { "name": "Mixed Nuts Box", "quantity": 10, "unitPrice": 400 },
-    { "name": "Energy Bars (Pack of 12)", "quantity": 5, "unitPrice": 800 }
-  ],
-  "totalAmount": 8000,
-  "currency": "INR",
-  "agentReasoning": "Selected highest rated vendor for team snacks keeping total at ₹8,000.",
-  "timestamp": "2026-08-24T22:10:00Z"
-}
-```
-
-### 3.2 Policy Decision Verdict
-```json
-{
-  "requestId": "req_9812739182",
-  "verdict": "ALLOW", // "ALLOW" | "BLOCK" | "ESCALATE"
-  "evaluatedRules": [
-    {
-      "ruleId": "rule_spend_cap_01",
-      "passed": true,
-      "reason": "Amount ₹8,000 is under max cap ₹15,000 and soft cap ₹10,000."
-    },
-    {
-      "ruleId": "rule_vendor_allowlist_01",
-      "passed": true,
-      "reason": "Vendor 'snack_house_pvt_ltd' is in allowlist."
-    }
-  ],
-  "overallReason": "All policy governance checks passed successfully.",
-  "timestamp": "2026-08-24T22:10:01Z"
-}
-```
-
----
-
-## 4. State Machine for Human Approval
+## 5. Human Approval Queue & Audit State Machine
 
 ```
-[ Request Created ]
-        │
-        ├── Verdict: ALLOW ──> [ Executed via Razorpay ] ──> [ Status: COMPLETED ]
-        │
-        ├── Verdict: BLOCK ──> [ Logged in Audit Trail ] ──> [ Status: REJECTED ]
-        │
-        └── Verdict: ESCALATE ──> [ Placed in Pending Queue ]
-                                       │
-                                       ├── Admin Clicks Approve ──> [ Executed via Razorpay ]
-                                       │
-                                       └── Admin Clicks Deny ────> [ Status: DENIED_BY_HUMAN ]
+[ Purchase Request Generated by LLM Agent ]
+                     │
+                     ▼
+        [ Policy Engine Evaluation ]
+                     │
+                     ├── Verdict: ALLOW ────> [ Razorpay Test Execution ] ──> [ Audit Log: COMPLETED ]
+                     │
+                     ├── Verdict: BLOCK ────> [ Logged with Audit Reason ] ──> [ Audit Log: REJECTED ]
+                     │
+                     └── Verdict: ESCALATE ─> [ Human Pending Queue ]
+                                                     │
+                                                     ├── Admin Clicks Approve ──> [ Razorpay Execution ]
+                                                     │
+                                                     └── Admin Clicks Deny ────> [ Status: DENIED_BY_HUMAN ]
 ```

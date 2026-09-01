@@ -42,7 +42,7 @@ export const App: React.FC = () => {
             </h1>
           </div>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
-            Policy Governance & Decision Audit Proxy for LLM Purchasing Agents
+            Autonomous LLM Purchasing Agent & Policy Governance Engine for Razorpay
           </p>
         </div>
 
